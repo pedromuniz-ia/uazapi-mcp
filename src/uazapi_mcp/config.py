@@ -13,6 +13,7 @@ UAZAPI_SERVER (e com ele o token) para outro lugar. Em desenvolvimento, use
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 HOME_DIR = Path.home() / ".uazapi-mcp"
@@ -20,6 +21,27 @@ _ENV_FILES = [
     HOME_DIR / ".env",
     Path.home() / ".claude" / ".env",
 ]
+
+# Cerquilha é caractere válido dentro de um token, então só abre comentário quando
+# vem depois de espaço em branco — é o critério do python-dotenv.
+_COMENTARIO_INLINE = re.compile(r"\s+#.*$", re.DOTALL)
+
+
+def _valor(bruto: str) -> str:
+    """Valor de uma linha do `.env`, no mesmo critério do python-dotenv.
+
+    Entre aspas, o valor é o que está dentro delas e o resto da linha é comentário:
+    `CHAVE="valor # com cerquilha"` preserva a cerquilha. Sem aspas, corta no primeiro
+    `#` precedido de espaço — sem isso, `CHAVE=abc  # comentário` viraria um token com
+    o comentário grudado, e `CHAVE=  # sem chave ainda` viraria o comentário inteiro.
+    """
+    texto = bruto.lstrip()
+    aspa = texto[:1]
+    if aspa in ("'", '"'):
+        fim = texto.find(aspa, 1)
+        if fim != -1:
+            return texto[1:fim]
+    return _COMENTARIO_INLINE.sub("", bruto).strip()
 
 
 def _carregar_env() -> None:
@@ -33,7 +55,7 @@ def _carregar_env() -> None:
                     continue
                 k, v = line.split("=", 1)
                 k = k.strip().removeprefix("export ").strip()
-                v = v.strip().strip("'\"")
+                v = _valor(v)
                 if k and v and k not in os.environ:
                     os.environ[k] = v
         except OSError:
