@@ -5,6 +5,21 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## [Unreleased]
 
+### Mudado
+
+- **Transcrição migrada da ElevenLabs Scribe v2 para a AssemblyAI.** A chave passa a ser
+  `ASSEMBLYAI_API_KEY`; `ELEVENLABS_API_KEY` não é mais lida. Modelo e idioma ficam em
+  `ASSEMBLYAI_MODEL` (default `best`) e `ASSEMBLYAI_LANGUAGE` (default `pt`).
+- A AssemblyAI é assíncrona: onde havia um POST agora são três passos — upload do
+  arquivo, criação do job e polling com backoff até 3s, teto de 300s por áudio. O
+  `upload_url` devolvido pela API é interno e não circula fora do processo.
+- `check_config` passa a mostrar `ASSEMBLYAI_API_KEY` e o par modelo/idioma.
+
+### Adicionado
+
+- `tests/test_transcricao.py`: sequência dos três passos, corpo do job, job com erro,
+  upload recusado, áudio sem fala, cache e não-cacheamento de erro. Sem rede.
+
 ## [0.1.0] - 2026-09-16
 
 Primeira versão.

@@ -46,7 +46,10 @@ SERVER = os.environ.get("UAZAPI_SERVER", "").rstrip("/")
 ADMIN_TOKEN = os.environ.get("UAZAPI_ADMIN_TOKEN", "")
 INSTANCE_TOKEN = os.environ.get("UAZAPI_TOKEN", "")
 DEFAULT_INSTANCE = os.environ.get("UAZAPI_DEFAULT_INSTANCE", "")
-ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY", "")
+# `best` acerta mais em pt-BR; `nano` custa uma fração e serve para varredura grande.
+ASSEMBLYAI_MODEL = os.environ.get("ASSEMBLYAI_MODEL", "best")
+ASSEMBLYAI_LANGUAGE = os.environ.get("ASSEMBLYAI_LANGUAGE", "pt")
 MEDIA_DIR = Path(os.environ.get("UAZAPI_MCP_MEDIA_DIR") or (HOME_DIR / "media")).expanduser()
 
 # Limites de segurança: impedem que uma chamada solta puxe a base inteira.
@@ -78,6 +81,7 @@ def diagnostico() -> dict[str, str]:
         "UAZAPI_ADMIN_TOKEN": marca(ADMIN_TOKEN),
         "UAZAPI_TOKEN": marca(INSTANCE_TOKEN),
         "UAZAPI_DEFAULT_INSTANCE": DEFAULT_INSTANCE or "não definido",
-        "ELEVENLABS_API_KEY": marca(ELEVENLABS_API_KEY),
+        "ASSEMBLYAI_API_KEY": marca(ASSEMBLYAI_API_KEY),
+        "modelo de transcrição": f"{ASSEMBLYAI_MODEL} ({ASSEMBLYAI_LANGUAGE})",
         "pasta de mídias": str(MEDIA_DIR),
     }

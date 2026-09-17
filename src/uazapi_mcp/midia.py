@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import mimetypes
 import re
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -28,6 +29,19 @@ TIPOS_MIDIA = TIPOS_AUDIO | TIPOS_IMAGEM | TIPOS_VIDEO | TIPOS_DOC | {"AlbumMess
 
 _cache_transcricao: dict[str, str] = {}
 
+ASSEMBLY_BASE = "https://api.assemblyai.com/v2"
+_POLL_INTERVALO = 3.0   # teto do backoff entre consultas ao job
+_POLL_TETO = 300.0      # desiste depois disso, em vez de segurar a chamada do agente
+
+
+class ErroTranscricao(Exception):
+    """Falha da API de transcrição, virada em texto pelo chamador."""
+
+
+def _cliente() -> httpx.AsyncClient:
+    """Única saída de rede da transcrição. Os testes trocam isto por um MockTransport."""
+    return httpx.AsyncClient(verify=certifi.where(), timeout=120.0)
+
 
 def _slug(texto: str, limite: int = 40) -> str:
     s = re.sub(r"[^\w\s-]", "", str(texto), flags=re.UNICODE).strip().replace(" ", "-")
@@ -40,30 +54,71 @@ def pasta_do_chat(instancia: str, chat_nome: str) -> Path:
     return p
 
 
+async def _esperar_job(cli: httpx.AsyncClient, headers: dict[str, str], job_id: str) -> str:
+    """Espera o job fechar.
+
+    A AssemblyAI é assíncrona: o POST /transcript só enfileira e devolve um id.
+    Quem consome isso é o `processar_lote`, com seis áudios em paralelo — daí o
+    backoff, para não virar uma consulta por segundo por áudio.
+    """
+    limite = time.monotonic() + _POLL_TETO
+    espera = 1.0
+    while True:
+        r = await cli.get(f"{ASSEMBLY_BASE}/transcript/{job_id}", headers=headers)
+        if r.status_code >= 400:
+            raise ErroTranscricao(f"consulta HTTP {r.status_code} {r.text[:150]}")
+        dados = r.json()
+        estado = dados.get("status")
+        if estado == "completed":
+            return (dados.get("text") or "").strip()
+        if estado == "error":
+            raise ErroTranscricao(str(dados.get("error") or "erro sem detalhe")[:200])
+        if time.monotonic() >= limite:
+            raise ErroTranscricao(
+                f"tempo esgotado em {int(_POLL_TETO)}s (job {job_id}, estado {estado})")
+        await asyncio.sleep(espera)
+        espera = min(espera * 1.5, _POLL_INTERVALO)
+
+
 async def transcrever(caminho: Path) -> str:
-    """Transcreve um áudio com ElevenLabs Scribe v2.
+    """Transcreve um áudio com AssemblyAI.
 
     A uazapi tem `transcribe: true` no /message/download, mas o servidor não tem
-    chave OpenAI configurada e devolve só o arquivo — testado. Scribe v2 também
-    acerta mais em pt-BR.
+    chave OpenAI configurada e devolve só o arquivo — testado. Daí a transcrição
+    local.
+
+    São três passos, não um: a API não aceita os bytes no mesmo POST que cria o
+    job, então sobe o arquivo, enfileira e faz polling. O `upload_url` que volta é
+    interno da AssemblyAI e não circula daqui para fora.
     """
-    if not config.ELEVENLABS_API_KEY:
-        return "[transcrição indisponível: ELEVENLABS_API_KEY não configurada]"
+    if not config.ASSEMBLYAI_API_KEY:
+        return "[transcrição indisponível: ASSEMBLYAI_API_KEY não configurada]"
     chave = str(caminho)
     if chave in _cache_transcricao:
         return _cache_transcricao[chave]
+    headers = {"authorization": config.ASSEMBLYAI_API_KEY}
     try:
-        async with httpx.AsyncClient(verify=certifi.where(), timeout=300.0) as cli:
-            with caminho.open("rb") as fh:
-                r = await cli.post(
-                    "https://api.elevenlabs.io/v1/speech-to-text",
-                    headers={"xi-api-key": config.ELEVENLABS_API_KEY},
-                    files={"file": (caminho.name, fh, "audio/mpeg")},
-                    data={"model_id": "scribe_v2", "language_code": "por"},
-                )
+        async with _cliente() as cli:
+            r = await cli.post(f"{ASSEMBLY_BASE}/upload", headers=headers,
+                               content=caminho.read_bytes())
             if r.status_code >= 400:
-                return f"[falha na transcrição: HTTP {r.status_code} {r.text[:150]}]"
-            texto = (r.json().get("text") or "").strip()
+                raise ErroTranscricao(f"upload HTTP {r.status_code} {r.text[:150]}")
+            audio_url = r.json().get("upload_url")
+            if not audio_url:
+                raise ErroTranscricao("upload aceito mas sem upload_url na resposta")
+
+            r = await cli.post(f"{ASSEMBLY_BASE}/transcript", headers=headers, json={
+                "audio_url": audio_url,
+                "language_code": config.ASSEMBLYAI_LANGUAGE,
+                "speech_model": config.ASSEMBLYAI_MODEL,
+            })
+            if r.status_code >= 400:
+                raise ErroTranscricao(f"job HTTP {r.status_code} {r.text[:150]}")
+            job_id = r.json().get("id")
+            if not job_id:
+                raise ErroTranscricao("job criado mas sem id na resposta")
+
+            texto = await _esperar_job(cli, headers, job_id)
     except Exception as e:
         return f"[falha na transcrição: {e}]"
     texto = texto or "[áudio sem fala detectada]"

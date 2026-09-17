@@ -11,7 +11,7 @@ advisory só vira público depois da correção.
 
 ## O que conta como vulnerabilidade aqui
 
-- Qualquer caminho em que o `UAZAPI_ADMIN_TOKEN`, o `UAZAPI_TOKEN` ou a `ELEVENLABS_API_KEY`
+- Qualquer caminho em que o `UAZAPI_ADMIN_TOKEN`, o `UAZAPI_TOKEN` ou a `ASSEMBLYAI_API_KEY`
   saiam do processo para um destino que não seja o servidor uazapi configurado ou a API da
   ElevenLabs — por exemplo, um arquivo de configuração alheio que consiga redirecionar
   `UAZAPI_SERVER`.

@@ -14,6 +14,11 @@ Servidor MCP para ler, transcrever e enviar mensagens de WhatsApp pela [uazapi](
 
 </div>
 
+> **Fork de [illumi-ai/uazapi-mcp](https://github.com/illumi-ai/uazapi-mcp).** Única
+> diferença: a transcrição usa **AssemblyAI** em vez de ElevenLabs Scribe v2. A variável
+> passa a ser `ASSEMBLYAI_API_KEY`; o resto — tools, parâmetros, formato do transcript —
+> é igual ao upstream.
+
 ---
 
 ## O problema que isso resolve
@@ -56,8 +61,8 @@ Precisa de [uv](https://docs.astral.sh/uv/), `git` e Python 3.11+. **Não precis
 claude mcp add uazapi \
   --env UAZAPI_SERVER=https://suaempresa.uazapi.com \
   --env UAZAPI_ADMIN_TOKEN=seu_admin_token \
-  --env ELEVENLABS_API_KEY=sua_chave_elevenlabs \
-  -- uvx --from git+https://github.com/illumi-ai/uazapi-mcp uazapi-mcp
+  --env ASSEMBLYAI_API_KEY=sua_chave_assemblyai \
+  -- uvx --from git+https://github.com/pedromuniz-ia/uazapi-mcp uazapi-mcp
 ```
 
 Para fixar uma versão, troque a origem por `git+https://github.com/illumi-ai/uazapi-mcp@v0.1.0`.
@@ -75,11 +80,11 @@ lista as instâncias conectadas, sem revelar segredos.
   "mcpServers": {
     "uazapi": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/illumi-ai/uazapi-mcp", "uazapi-mcp"],
+      "args": ["--from", "git+https://github.com/pedromuniz-ia/uazapi-mcp", "uazapi-mcp"],
       "env": {
         "UAZAPI_SERVER": "https://suaempresa.uazapi.com",
         "UAZAPI_ADMIN_TOKEN": "seu_admin_token",
-        "ELEVENLABS_API_KEY": "sua_chave_elevenlabs"
+        "ASSEMBLYAI_API_KEY": "sua_chave_assemblyai"
       }
     }
   }
@@ -113,7 +118,8 @@ Detalhes e como adaptar ao seu fluxo em [`skills/README.md`](skills/README.md).
 | `UAZAPI_ADMIN_TOKEN` | sim¹ | Lista as instâncias e resolve o token de cada uma pelo nome |
 | `UAZAPI_TOKEN` | sim¹ | Alternativa: token de **uma** instância, se você só tem acesso a ela |
 | `UAZAPI_DEFAULT_INSTANCE` | não | Instância usada quando a chamada não informa `instance` |
-| `ELEVENLABS_API_KEY` | não | Transcrição ([Scribe v2](https://elevenlabs.io/speech-to-text)). Sem ela o áudio é baixado, não transcrito |
+| `ASSEMBLYAI_API_KEY` | não | Transcrição ([AssemblyAI](https://www.assemblyai.com/docs)). Sem ela o áudio é baixado, não transcrito |
+| `ASSEMBLYAI_MODEL`<br>`ASSEMBLYAI_LANGUAGE` | não | Modelo e idioma da transcrição (`best` / `pt`). `nano` custa uma fração do `best` |
 | `UAZAPI_MCP_MEDIA_DIR` | não | Onde gravar as mídias (padrão `~/.uazapi-mcp/media`) |
 | `UAZAPI_MCP_MAX_MENSAGENS`<br>`UAZAPI_MCP_MAX_TRANSCRICOES`<br>`UAZAPI_MCP_MAX_DOWNLOADS` | não | Tetos por chamada: `3000` / `30` / `60` |
 
@@ -183,7 +189,7 @@ no grupo errado — e mensagem enviada em grupo de cliente não tem desfazer.
    chat. Por isso pedir só os áudios é eficiente.
 3. **`transcribe: true` do `/message/download` pode não transcrever**: depende de uma chave
    OpenAI configurada no servidor uazapi. Sem ela, devolve só o arquivo, sem erro. Daí a
-   transcrição local via Scribe v2.
+   transcrição local via AssemblyAI.
 4. **O `fileURL` da uazapi é público, sem autenticação** — confirmado baixando o arquivo
    sem nenhum token. Este servidor grava a mídia em disco e devolve o caminho; o link nunca
    circula.
@@ -194,7 +200,7 @@ no grupo errado — e mensagem enviada em grupo de cliente não tem desfazer.
 ## Privacidade
 
 Conversa de WhatsApp é dado pessoal de terceiro. Este servidor grava mídias no disco local
-e, quando você configura a chave, as transcrições passam pela API da ElevenLabs. Use com a
+e, quando você configura a chave, as transcrições passam pela API da AssemblyAI. Use com a
 autorização de quem é dono do número, mantenha a pasta de mídias fora de qualquer
 repositório (o `.gitignore` já cobre) e apague o que não precisa mais.
 
