@@ -62,7 +62,8 @@ async def _request(method: str, path: str, body: dict | None = None, *,
 
 
 async def post(path: str, body: dict, token: str) -> Any:
-    return await _request("POST", path, body, token=token)
+    # Envio não é idempotente: sem retry automático para não duplicar mensagens.
+    return await _request("POST", path, body, token=token, tentativas=1)
 
 
 async def get(path: str, token: str) -> Any:
