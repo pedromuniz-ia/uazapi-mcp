@@ -435,6 +435,112 @@ async def transcribe_file(caminho: str) -> str:
     return await transcrever(p)
 
 
+# ------------------------------------------------------- contatos e etiquetas
+
+@mcp.tool()
+async def save_contact(numero: str, nome: str, instance: str = "") -> str:
+    """Salva (ou renomeia) um contato na agenda da instância.
+
+    numero: telefone internacional (ex.: 5511999999999) ou JID @s.whatsapp.net.
+    nome: nome a gravar. Chamar de novo com o mesmo número troca o nome.
+    instance: nome, número ou token da instância; vazio usa a padrão.
+    """
+    try:
+        _, token = await uazapi.resolver_instancia(instance)
+        d = await uazapi.post("/contact/add", {"number": numero, "name": nome}, token)
+        return f"Contato salvo: {numero} -> {nome!r}. Resposta: {d}"
+    except Exception as e:
+        return _erro(e)
+
+
+def _labels_de(d: Any) -> list[dict]:
+    if isinstance(d, list):
+        return d
+    if isinstance(d, dict):
+        return d.get("labels") or d.get("data") or []
+    return []
+
+
+def _label_id(l: dict) -> str:
+    return str(l.get("labelid") or l.get("LabelID") or l.get("id") or "")
+
+
+@mcp.tool()
+async def list_labels(instance: str = "") -> str:
+    """Lista as etiquetas (labels) da instância com id, nome e cor.
+
+    Etiquetas existem só no WhatsApp Business. Use os ids em label_chat.
+    """
+    try:
+        _, token = await uazapi.resolver_instancia(instance)
+        labels = _labels_de(await uazapi.get("/labels", token))
+        if not labels:
+            return "Nenhuma etiqueta encontrada nesta instância."
+        L = ["| id | nome | cor |", "|---|---|---|"]
+        for l in labels:
+            L.append(f"| {_label_id(l)} | {l.get('name') or l.get('Name') or '-'} | "
+                     f"{l.get('color', l.get('Color', '-'))} |")
+        return "\n".join(L)
+    except Exception as e:
+        return _erro(e)
+
+
+@mcp.tool()
+async def edit_label(nome: str = "", labelid: str = "new", cor: int = -1,
+                     apagar: bool = False, instance: str = "") -> str:
+    """Cria, renomeia ou apaga uma etiqueta.
+
+    labelid: 'new' cria (padrão); um id existente edita/apaga.
+    nome: nome da etiqueta. cor: 0-19 (-1 mantém/omite). apagar: True apaga labelid.
+    Ao criar, se já existir etiqueta com o mesmo nome, não duplica.
+    """
+    try:
+        _, token = await uazapi.resolver_instancia(instance)
+        if labelid == "new":
+            if apagar:
+                return "ERRO: informe o labelid real para apagar."
+            if not nome:
+                return "ERRO: informe `nome` para criar a etiqueta."
+            for l in _labels_de(await uazapi.get("/labels", token)):
+                if (l.get("name") or l.get("Name") or "").strip().lower() == nome.strip().lower():
+                    return f"Etiqueta {nome!r} já existe (id {_label_id(l)}); nada criado."
+        body: dict[str, Any] = {"labelid": labelid, "delete": apagar}
+        if nome:
+            body["name"] = nome
+        if 0 <= cor <= 19:
+            body["color"] = cor
+        d = await uazapi.post("/label/edit", body, token)
+        return f"OK: {d}"
+    except Exception as e:
+        return _erro(e)
+
+
+@mcp.tool()
+async def label_chat(chat: str, adicionar: str = "", remover: str = "",
+                     definir: str = "", instance: str = "") -> str:
+    """Aplica ou remove etiquetas de um chat (número, JID ou nome).
+
+    Use só um modo: adicionar=<labelid>, remover=<labelid> ou
+    definir='id1,id2' (substitui todas; definir='-' limpa).
+    """
+    try:
+        modos = [m for m in (adicionar, remover, definir) if m]
+        if len(modos) != 1:
+            return "ERRO: use exatamente um de adicionar, remover ou definir."
+        _, token, c = await _ctx(instance, chat)
+        body: dict[str, Any] = {"number": c.get("wa_chatid")}
+        if adicionar:
+            body["add_labelid"] = adicionar
+        elif remover:
+            body["remove_labelid"] = remover
+        else:
+            body["labelids"] = [] if definir.strip() == "-" else [x.strip() for x in definir.split(",") if x.strip()]
+        d = await uazapi.post("/chat/labels", body, token)
+        return f"OK ({uazapi.nome_do_chat(c)}): {d}"
+    except Exception as e:
+        return _erro(e)
+
+
 def main() -> None:
     # httpx loga cada URL em INFO; isso gravaria os links publicos de mídia no log do
     # cliente MCP. Só avisos e erros.
