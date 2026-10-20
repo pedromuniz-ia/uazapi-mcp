@@ -8,6 +8,7 @@ o arquivo é gravado em disco e só o caminho circula.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import mimetypes
 import re
 import time
@@ -28,6 +29,7 @@ TIPOS_DOC = {"DocumentMessage"}
 TIPOS_MIDIA = TIPOS_AUDIO | TIPOS_IMAGEM | TIPOS_VIDEO | TIPOS_DOC | {"AlbumMessage"}
 
 _cache_transcricao: dict[str, str] = {}
+_transcricoes_em_andamento: dict[str, asyncio.Future] = {}
 
 ASSEMBLY_BASE = "https://api.assemblyai.com/v2"
 _POLL_INTERVALO = 3.0   # teto do backoff entre consultas ao job
@@ -52,6 +54,20 @@ def pasta_do_chat(instancia: str, chat_nome: str) -> Path:
     p = config.MEDIA_DIR / _slug(instancia, 30) / _slug(chat_nome)
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def nome_do_arquivo(msg: dict, ext: str) -> str:
+    """Nome local da mídia de uma mensagem: horário, id e rótulo.
+
+    Só o horário não basta: áudios encaminhados juntos chegam com o mesmo
+    messageTimestamp, e um arquivo sobrescrevia o outro.
+    """
+    conteudo = msg.get("content") if isinstance(msg.get("content"), dict) else {}
+    nome_original = conteudo.get("fileName") or ""
+    tipo = msg.get("messageType", "")
+    base = _slug(Path(nome_original).stem, 30) if nome_original else _slug(tipo.replace("Message", ""), 20)
+    mid = _slug(msg.get("messageid") or msg.get("id") or "", 64)[-12:]
+    return f"{msg.get('messageTimestamp', 0)}-{mid}-{base}{ext}"
 
 
 async def _esperar_job(cli: httpx.AsyncClient, headers: dict[str, str], job_id: str) -> str:
@@ -87,15 +103,34 @@ async def transcrever(caminho: Path) -> str:
     chave OpenAI configurada e devolve só o arquivo — testado. Daí a transcrição
     local.
 
+    O cache é pelo conteúdo: o mesmo áudio encaminhado duas vezes é transcrito uma
+    vez só, mesmo quando as duas cópias chegam juntas. Falha não entra no cache.
+    """
+    if not config.ASSEMBLYAI_API_KEY:
+        return "[transcrição indisponível: ASSEMBLYAI_API_KEY não configurada]"
+    chave = hashlib.sha256(caminho.read_bytes()).hexdigest()
+    if chave in _cache_transcricao:
+        return _cache_transcricao[chave]
+    tarefa = _transcricoes_em_andamento.get(chave)
+    if tarefa is None:
+        tarefa = asyncio.ensure_future(_chamar_assemblyai(caminho))
+        _transcricoes_em_andamento[chave] = tarefa
+    try:
+        ok, texto = await tarefa
+    finally:
+        _transcricoes_em_andamento.pop(chave, None)
+    if ok:
+        _cache_transcricao[chave] = texto
+    return texto
+
+
+async def _chamar_assemblyai(caminho: Path) -> tuple[bool, str]:
+    """Uma transcrição na AssemblyAI. Devolve (sucesso, texto ou mensagem de falha).
+
     São três passos, não um: a API não aceita os bytes no mesmo POST que cria o
     job, então sobe o arquivo, enfileira e faz polling. O `upload_url` que volta é
     interno da AssemblyAI e não circula daqui para fora.
     """
-    if not config.ASSEMBLYAI_API_KEY:
-        return "[transcrição indisponível: ASSEMBLYAI_API_KEY não configurada]"
-    chave = str(caminho)
-    if chave in _cache_transcricao:
-        return _cache_transcricao[chave]
     headers = {"authorization": config.ASSEMBLYAI_API_KEY}
     try:
         async with _cliente() as cli:
@@ -120,10 +155,8 @@ async def transcrever(caminho: Path) -> str:
 
             texto = await _esperar_job(cli, headers, job_id)
     except Exception as e:
-        return f"[falha na transcrição: {e}]"
-    texto = texto or "[áudio sem fala detectada]"
-    _cache_transcricao[chave] = texto
-    return texto
+        return False, f"[falha na transcrição: {e}]"
+    return True, texto or "[áudio sem fala detectada]"
 
 
 async def processar_midia(token: str, msg: dict, destino: Path, *,
@@ -148,12 +181,9 @@ async def processar_midia(token: str, msg: dict, destino: Path, *,
         saida["erro"] = r.get("error") or "mídia expirada no WhatsApp"
         return saida
 
-    conteudo = msg.get("content") if isinstance(msg.get("content"), dict) else {}
     ext = (Path(urlparse(url).path).suffix
            or mimetypes.guess_extension(r.get("mimetype", "") or "") or ".bin")
-    nome_original = conteudo.get("fileName") or ""
-    base = _slug(Path(nome_original).stem, 30) if nome_original else _slug(tipo.replace("Message", ""), 20)
-    arquivo = destino / f"{msg.get('messageTimestamp', 0)}-{base}{ext}"
+    arquivo = destino / nome_do_arquivo(msg, ext)
     try:
         if not arquivo.exists():
             await baixar_arquivo(url, arquivo)
