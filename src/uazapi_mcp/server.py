@@ -625,6 +625,12 @@ async def label_chat(chat: str, adicionar: str = "", remover: str = "",
         modos = [m for m in (adicionar, remover, definir) if m]
         if len(modos) != 1:
             return "ERRO: use exatamente um de adicionar, remover ou definir."
+        limpar = definir.strip() == "-"
+        ids = [] if limpar else [x.strip() for x in definir.split(",") if x.strip()]
+        # `labelids` substitui todas as etiquetas: uma lista vazia por engano (" , ")
+        # apagaria tudo. Limpar só com o '-' explícito.
+        if definir and not ids and not limpar:
+            return "ERRO: definir sem nenhum id. Para limpar todas as etiquetas, use definir='-'."
         _, token, c = await _ctx(instance, chat)
         body: dict[str, Any] = {"number": c.get("wa_chatid")}
         if adicionar:
@@ -632,7 +638,7 @@ async def label_chat(chat: str, adicionar: str = "", remover: str = "",
         elif remover:
             body["remove_labelid"] = remover
         else:
-            body["labelids"] = [] if definir.strip() == "-" else [x.strip() for x in definir.split(",") if x.strip()]
+            body["labelids"] = ids
         d = await uazapi.post("/chat/labels", body, token)
         return f"OK ({uazapi.nome_do_chat(c)}): {d}"
     except Exception as e:

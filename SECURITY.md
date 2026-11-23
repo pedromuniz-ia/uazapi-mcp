@@ -13,7 +13,7 @@ advisory só vira público depois da correção.
 
 - Qualquer caminho em que o `UAZAPI_ADMIN_TOKEN`, o `UAZAPI_TOKEN` ou a `ASSEMBLYAI_API_KEY`
   saiam do processo para um destino que não seja o servidor uazapi configurado ou a API da
-  ElevenLabs — por exemplo, um arquivo de configuração alheio que consiga redirecionar
+  AssemblyAI — por exemplo, um arquivo de configuração alheio que consiga redirecionar
   `UAZAPI_SERVER`.
 - Escrita fora da pasta de mídias (`UAZAPI_MCP_MEDIA_DIR`) a partir de nomes de chat,
   instância ou arquivo vindos da API.
@@ -28,7 +28,7 @@ advisory só vira público depois da correção.
   Isso é comportamento do servidor uazapi, não deste código. Aqui o link nunca circula: a
   mídia é gravada em disco e só o caminho local aparece. Se isso preocupa, reporte à uazapi.
 - Conteúdo das conversas: é dado pessoal de terceiros que passa pelo seu disco e, quando
-  você configura a chave, pela ElevenLabs. Use com autorização do dono do número.
+  você configura a chave, pela AssemblyAI. Use com autorização do dono do número.
 
 ## Versões suportadas
 

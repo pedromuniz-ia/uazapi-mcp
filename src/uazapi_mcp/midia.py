@@ -132,6 +132,7 @@ async def _chamar_assemblyai(caminho: Path) -> tuple[bool, str]:
     interno da AssemblyAI e não circula daqui para fora.
     """
     headers = {"authorization": config.ASSEMBLYAI_API_KEY}
+    audio_url = ""
     try:
         async with _cliente() as cli:
             r = await cli.post(f"{ASSEMBLY_BASE}/upload", headers=headers,
@@ -142,20 +143,29 @@ async def _chamar_assemblyai(caminho: Path) -> tuple[bool, str]:
             if not audio_url:
                 raise ErroTranscricao("upload aceito mas sem upload_url na resposta")
 
-            r = await cli.post(f"{ASSEMBLY_BASE}/transcript", headers=headers, json={
-                "audio_url": audio_url,
-                "language_code": config.ASSEMBLYAI_LANGUAGE,
-                "speech_model": config.ASSEMBLYAI_MODEL,
-            })
+            job: dict[str, Any] = {"audio_url": audio_url,
+                                   "language_code": config.ASSEMBLYAI_LANGUAGE}
+            if config.ASSEMBLYAI_SPEECH_MODELS:
+                # `speech_model` (singular) está depreciado no /v2/transcript: ignora
+                # nomes antigos e recusa os atuais. A lista é ordem de fallback.
+                job["speech_models"] = config.ASSEMBLYAI_SPEECH_MODELS
+            r = await cli.post(f"{ASSEMBLY_BASE}/transcript", headers=headers, json=job)
             if r.status_code >= 400:
                 raise ErroTranscricao(f"job HTTP {r.status_code} {r.text[:150]}")
             job_id = r.json().get("id")
             if not job_id:
                 raise ErroTranscricao("job criado mas sem id na resposta")
 
-            texto = await _esperar_job(cli, headers, job_id)
+            # O teto cobre consultas e esperas: uma consulta lenta não estica o prazo.
+            texto = await asyncio.wait_for(_esperar_job(cli, headers, job_id), _POLL_TETO)
+    except TimeoutError:
+        return False, f"[falha na transcrição: tempo esgotado em {int(_POLL_TETO)}s]"
     except Exception as e:
-        return False, f"[falha na transcrição: {e}]"
+        erro = str(e)
+        if audio_url:
+            # Erros da AssemblyAI podem citar a URL do upload; ela não sai do processo.
+            erro = erro.replace(audio_url, "<upload_url>")
+        return False, f"[falha na transcrição: {erro}]"
     return True, texto or "[áudio sem fala detectada]"
 
 
