@@ -69,8 +69,10 @@ ADMIN_TOKEN = os.environ.get("UAZAPI_ADMIN_TOKEN", "")
 INSTANCE_TOKEN = os.environ.get("UAZAPI_TOKEN", "")
 DEFAULT_INSTANCE = os.environ.get("UAZAPI_DEFAULT_INSTANCE", "")
 ASSEMBLYAI_API_KEY = os.environ.get("ASSEMBLYAI_API_KEY", "")
-# `best` acerta mais em pt-BR; `nano` custa uma fração e serve para varredura grande.
-ASSEMBLYAI_MODEL = os.environ.get("ASSEMBLYAI_MODEL", "best")
+# Modelos da AssemblyAI em ordem de fallback (campo `speech_models`), separados por vírgula,
+# ex.: `universal-3-5-pro,universal-2`. Vazio = padrão da AssemblyAI, que já tenta o melhor.
+ASSEMBLYAI_SPEECH_MODELS = [m.strip() for m in
+                            os.environ.get("ASSEMBLYAI_SPEECH_MODELS", "").split(",") if m.strip()]
 ASSEMBLYAI_LANGUAGE = os.environ.get("ASSEMBLYAI_LANGUAGE", "pt")
 MEDIA_DIR = Path(os.environ.get("UAZAPI_MCP_MEDIA_DIR") or (HOME_DIR / "media")).expanduser()
 
@@ -100,7 +102,7 @@ def checar_servidor() -> None:
             "(ex.: https://suaempresa.uazapi.com) no cliente MCP:\n"
             "  claude mcp add uazapi --env UAZAPI_SERVER=https://suaempresa.uazapi.com "
             "--env UAZAPI_ADMIN_TOKEN=seu_token -- uvx --from "
-            "git+https://github.com/illumi-ai/uazapi-mcp uazapi-mcp"
+            "git+https://github.com/pedromuniz-ia/uazapi-mcp uazapi-mcp"
         )
 
 
@@ -115,7 +117,8 @@ def diagnostico() -> dict[str, str]:
         "UAZAPI_TOKEN": marca(INSTANCE_TOKEN),
         "UAZAPI_DEFAULT_INSTANCE": DEFAULT_INSTANCE or "não definido",
         "ASSEMBLYAI_API_KEY": marca(ASSEMBLYAI_API_KEY),
-        "modelo de transcrição": f"{ASSEMBLYAI_MODEL} ({ASSEMBLYAI_LANGUAGE})",
+        "modelo de transcrição": (f"{','.join(ASSEMBLYAI_SPEECH_MODELS) or 'padrão da AssemblyAI'}"
+                                  f" ({ASSEMBLYAI_LANGUAGE})"),
         "pasta de mídias": str(MEDIA_DIR),
         "pastas liberadas para send_media": os.pathsep.join(map(str, SEND_DIRS)),
         "chats sem aprovação humana": str(len(SEND_ALLOWED_CHATS)),

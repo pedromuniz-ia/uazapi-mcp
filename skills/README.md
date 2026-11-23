@@ -14,7 +14,7 @@ antes de enviar mensagem.
 ## Instalar
 
 ```bash
-git clone https://github.com/illumi-ai/uazapi-mcp
+git clone https://github.com/pedromuniz-ia/uazapi-mcp
 cd uazapi-mcp
 
 # todas, para o usuário (valem em qualquer projeto)

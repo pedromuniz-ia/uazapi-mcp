@@ -15,7 +15,7 @@ from uazapi_mcp import config, midia
 @pytest.fixture(autouse=True)
 def _ambiente(monkeypatch):
     monkeypatch.setattr(config, "ASSEMBLYAI_API_KEY", "chave-de-teste")
-    monkeypatch.setattr(config, "ASSEMBLYAI_MODEL", "best")
+    monkeypatch.setattr(config, "ASSEMBLYAI_SPEECH_MODELS", [])
     monkeypatch.setattr(config, "ASSEMBLYAI_LANGUAGE", "pt")
     # O polling dorme entre consultas; nos testes não.
     monkeypatch.setattr(midia.asyncio, "sleep", _nao_dorme)
@@ -85,11 +85,46 @@ def test_transcreve_apos_o_job_fechar(monkeypatch, audio):
     assert chamadas[0].content == b"\x00\x01bytes-de-audio"
     assert chamadas[0].headers["authorization"] == "chave-de-teste"
     import json
+    # Sem ASSEMBLYAI_SPEECH_MODELS, nenhum campo de modelo: vale o padrão da AssemblyAI.
     assert json.loads(chamadas[1].content) == {
         "audio_url": "https://cdn.assemblyai.com/upload/abc",
         "language_code": "pt",
-        "speech_model": "best",
     }
+
+
+def test_modelos_vao_em_speech_models_como_lista(monkeypatch, audio):
+    import json
+    monkeypatch.setattr(config, "ASSEMBLYAI_SPEECH_MODELS", ["universal-3-5-pro", "universal-2"])
+    chamadas = _instalar(monkeypatch, _fluxo(["completed"]))
+    asyncio.run(midia.transcrever(audio))
+    corpo = json.loads(chamadas[1].content)
+    assert corpo["speech_models"] == ["universal-3-5-pro", "universal-2"]
+    assert "speech_model" not in corpo
+
+
+def test_erro_do_job_nao_vaza_a_url_do_upload(monkeypatch, audio):
+    def handler(request):
+        if request.url.path == "/v2/upload":
+            return httpx.Response(200, json={"upload_url": "https://cdn.assemblyai.com/upload/abc"})
+        if request.method == "POST":
+            return httpx.Response(200, json={"id": "job-1"})
+        return httpx.Response(200, json={
+            "status": "error",
+            "error": "Download error, unable to download https://cdn.assemblyai.com/upload/abc"})
+    _instalar(monkeypatch, handler)
+    out = asyncio.run(midia.transcrever(audio))
+    assert "cdn.assemblyai.com/upload/abc" not in out
+    assert "<upload_url>" in out
+
+
+def test_teto_cobre_consulta_lenta(monkeypatch, audio):
+    async def lento(*_a, **_k):
+        await asyncio.Event().wait()   # nunca responde
+    monkeypatch.setattr(midia, "_POLL_TETO", 0.05)
+    monkeypatch.setattr(midia, "_esperar_job", lento)
+    _instalar(monkeypatch, _fluxo(["completed"]))
+    out = asyncio.run(midia.transcrever(audio))
+    assert out.startswith("[falha na transcrição: tempo esgotado")
 
 
 def test_job_com_erro_virou_texto_e_nao_excecao(monkeypatch, audio):

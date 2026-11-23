@@ -4,8 +4,7 @@
 
 **Seu WhatsApp dentro do Claude Code — com os áudios já transcritos.**
 
-[![tests](https://github.com/illumi-ai/uazapi-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/illumi-ai/uazapi-mcp/actions/workflows/tests.yml)
-[![release](https://img.shields.io/github/v/release/illumi-ai/uazapi-mcp?label=release&color=2ea44f)](https://github.com/illumi-ai/uazapi-mcp/releases)
+[![release](https://img.shields.io/github/v/release/pedromuniz-ia/uazapi-mcp?label=release&color=2ea44f)](https://github.com/pedromuniz-ia/uazapi-mcp/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org)
 [![MCP](https://img.shields.io/badge/MCP-server-8A2BE2.svg)](https://modelcontextprotocol.io)
@@ -14,10 +13,10 @@ Servidor MCP para ler, transcrever e enviar mensagens de WhatsApp pela [uazapi](
 
 </div>
 
-> **Fork de [illumi-ai/uazapi-mcp](https://github.com/illumi-ai/uazapi-mcp).** Única
-> diferença: a transcrição usa **AssemblyAI** em vez de ElevenLabs Scribe v2. A variável
-> passa a ser `ASSEMBLYAI_API_KEY`; o resto — tools, parâmetros, formato do transcript —
-> é igual ao upstream.
+> **Fork de [illumi-ai/uazapi-mcp](https://github.com/illumi-ai/uazapi-mcp).** Diferenças:
+> transcrição pela **AssemblyAI** em vez de ElevenLabs Scribe v2 (`ASSEMBLYAI_API_KEY`),
+> tools de contato e etiquetas, e envio só com aprovação do usuário no cliente. Detalhes no
+> [CHANGELOG](CHANGELOG.md).
 
 ---
 
@@ -65,8 +64,8 @@ claude mcp add uazapi \
   -- uvx --from git+https://github.com/pedromuniz-ia/uazapi-mcp uazapi-mcp
 ```
 
-Para fixar uma versão, troque a origem por `git+https://github.com/illumi-ai/uazapi-mcp@v0.1.0`.
-As versões estão em [Releases](https://github.com/illumi-ai/uazapi-mcp/releases), cada uma com
+Para fixar uma versão, troque a origem por `git+https://github.com/pedromuniz-ia/uazapi-mcp@v0.2.0`.
+As versões estão em [Releases](https://github.com/pedromuniz-ia/uazapi-mcp/releases), cada uma com
 wheel e sdist anexados.
 
 Reinicie a sessão e peça ao agente para rodar `check_config` — ele confirma a conexão e
@@ -104,7 +103,7 @@ O repositório traz três skills que ensinam ao agente os fluxos completos:
 | **`resumo-do-dia`** | Briefing: o que chegou, o que está sem resposta, o que precisa de decisão |
 
 ```bash
-git clone https://github.com/illumi-ai/uazapi-mcp
+git clone https://github.com/pedromuniz-ia/uazapi-mcp
 cp -r uazapi-mcp/skills/whatsapp uazapi-mcp/skills/entender-problema uazapi-mcp/skills/resumo-do-dia ~/.claude/skills/
 ```
 
@@ -119,7 +118,8 @@ Detalhes e como adaptar ao seu fluxo em [`skills/README.md`](skills/README.md).
 | `UAZAPI_TOKEN` | sim¹ | Alternativa: token de **uma** instância, se você só tem acesso a ela |
 | `UAZAPI_DEFAULT_INSTANCE` | não | Instância usada quando a chamada não informa `instance` |
 | `ASSEMBLYAI_API_KEY` | não | Transcrição ([AssemblyAI](https://www.assemblyai.com/docs)). Sem ela o áudio é baixado, não transcrito |
-| `ASSEMBLYAI_MODEL`<br>`ASSEMBLYAI_LANGUAGE` | não | Modelo e idioma da transcrição (`best` / `pt`). `nano` custa uma fração do `best` |
+| `ASSEMBLYAI_SPEECH_MODELS` | não | Modelos em ordem de fallback, separados por vírgula (ex.: `universal-3-5-pro,universal-2`). Vazio = padrão da AssemblyAI |
+| `ASSEMBLYAI_LANGUAGE` | não | Idioma da transcrição (padrão `pt`) |
 | `UAZAPI_MCP_MEDIA_DIR` | não | Onde gravar as mídias (padrão `~/.uazapi-mcp/media`) |
 | `UAZAPI_MCP_SEND_DIRS` | não | Pastas de onde `send_media` pode ler arquivos locais, separadas por `:` (padrão: a pasta de mídias) |
 | `UAZAPI_MCP_SEND_ALLOWED_CHATS` | não | `wa_chatid`s, separados por vírgula, que recebem envio **sem** aprovação humana (bots autônomos) |
@@ -225,7 +225,7 @@ em issue pública.
 ## Desenvolvimento
 
 ```bash
-git clone https://github.com/illumi-ai/uazapi-mcp && cd uazapi-mcp
+git clone https://github.com/pedromuniz-ia/uazapi-mcp && cd uazapi-mcp
 cp .env.example .env    # preencha
 uv sync
 uv run --group dev pytest              # testes, sem rede
