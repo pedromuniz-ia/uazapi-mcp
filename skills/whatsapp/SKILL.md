@@ -61,7 +61,8 @@ texto no servidor, a varredura é local). Com `chat=` fica bem mais rápido.
 
 1. `send_text(chat=..., texto=...)` **sem** `confirmar` devolve a prévia.
 2. Mostre a prévia ao usuário — destino, se é grupo, e o texto — e espere o aval.
-3. Só então repita com `confirmar=True`.
+3. Só então repita com `confirmar=True`: o cliente abre um pedido de aprovação para o
+   usuário, e a mensagem só sai se ele aprovar ali.
 
 Nunca pule a etapa 2, nem quando o usuário disser "manda logo": a prévia existe porque o
 destino foi resolvido por nome, e grupo errado é dano real.

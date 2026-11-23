@@ -5,6 +5,18 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## [Unreleased]
 
+### Segurança
+
+- **Envio só com aprovação do usuário.** `confirmar=True` era um argumento que o próprio
+  modelo preenche, então uma mensagem recebida com prompt injection podia fazer o agente
+  enviar sem aval. Agora `send_text` e `send_media` pedem aprovação via MCP elicitation
+  (resolver `Resolve`/`Elicit` do SDK, que funciona nas specs antiga e 2026-07-28); cliente
+  sem elicitation não envia. `UAZAPI_MCP_SEND_ALLOWED_CHATS` libera destinos de bots autônomos.
+- **`send_media` não lê mais qualquer arquivo do disco.** Só de dentro de
+  `UAZAPI_MCP_SEND_DIRS` (padrão: a pasta de mídias), com `resolve()` contra `..` e symlinks.
+  Antes, a mesma injeção podia enviar `.env`, chaves SSH ou credenciais do usuário.
+- `.gitignore` cobre `.env.*` (um por instância), exceto `.env.example`.
+
 ### Mudado
 
 - **Transcrição migrada da ElevenLabs Scribe v2 para a AssemblyAI.** A chave passa a ser

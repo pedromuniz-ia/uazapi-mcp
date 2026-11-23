@@ -1,5 +1,7 @@
 # Segredos e dados de conversas — nunca versionar
 .env
+.env.*
+!.env.example
 media/
 *.mp3
 *.ogg
