@@ -74,6 +74,17 @@ ASSEMBLYAI_MODEL = os.environ.get("ASSEMBLYAI_MODEL", "best")
 ASSEMBLYAI_LANGUAGE = os.environ.get("ASSEMBLYAI_LANGUAGE", "pt")
 MEDIA_DIR = Path(os.environ.get("UAZAPI_MCP_MEDIA_DIR") or (HOME_DIR / "media")).expanduser()
 
+# Pastas de onde send_media pode ler arquivos locais (separadas por os.pathsep). Fora
+# delas, nada sai: sem isso, uma mensagem recebida com prompt injection faria o agente
+# enviar o próprio .env, chaves SSH ou qualquer arquivo do usuário do processo.
+SEND_DIRS = [Path(p).expanduser() for p in
+             os.environ.get("UAZAPI_MCP_SEND_DIRS", "").split(os.pathsep) if p.strip()] or [MEDIA_DIR]
+
+# Chats (wa_chatid) que recebem envio sem aprovação humana, para bots autônomos.
+# Vazio = todo envio pede aprovação ao usuário no cliente MCP.
+SEND_ALLOWED_CHATS = frozenset(
+    c.strip() for c in os.environ.get("UAZAPI_MCP_SEND_ALLOWED_CHATS", "").split(",") if c.strip())
+
 # Limites de segurança: impedem que uma chamada solta puxe a base inteira.
 MAX_MENSAGENS = int(os.environ.get("UAZAPI_MCP_MAX_MENSAGENS", "3000"))
 PAGINA = 500
@@ -106,4 +117,6 @@ def diagnostico() -> dict[str, str]:
         "ASSEMBLYAI_API_KEY": marca(ASSEMBLYAI_API_KEY),
         "modelo de transcrição": f"{ASSEMBLYAI_MODEL} ({ASSEMBLYAI_LANGUAGE})",
         "pasta de mídias": str(MEDIA_DIR),
+        "pastas liberadas para send_media": os.pathsep.join(map(str, SEND_DIRS)),
+        "chats sem aprovação humana": str(len(SEND_ALLOWED_CHATS)),
     }

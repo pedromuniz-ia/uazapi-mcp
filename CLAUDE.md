@@ -41,8 +41,12 @@ transcrição: rode com janela curta e só quando a mudança exige.
   `ranges.normalizar`, então acento na chamada não quebra nada — mas não acentue os
   literais de comparação.
 - **Toda tool devolve texto.** Falha é `ERRO: <o que fazer a seguir>`, nunca exceção.
-- **Envio é em duas etapas.** `confirmar=False` devolve prévia e não envia. Não existe
-  caminho que dispare mensagem sem isso, e não deve passar a existir.
+- **Envio só com aprovação do usuário.** `confirmar=False` devolve prévia e não envia;
+  `confirmar=True` pede aprovação via elicitation (resolver `Resolve`/`Elicit`). Um argumento
+  que o modelo controla nunca conta como aprovação. A única exceção são os chats em
+  `UAZAPI_MCP_SEND_ALLOWED_CHATS`, e não deve surgir outra.
+- **`send_media` só lê de `UAZAPI_MCP_SEND_DIRS`.** Caminho vindo do modelo nunca abre
+  arquivo fora dessas pastas.
 - **Nada de disparo em massa.** `/sender/*` fica fora de propósito.
 - Ao descobrir que a API se comporta diferente do documentado em `docs/api-uazapi.md`,
   atualize o documento com o teste que prova, e só então o código.

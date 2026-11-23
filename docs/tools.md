@@ -97,8 +97,11 @@ Exige o celular online. `HTTP 400` significa chat sem mensagem âncora conhecida
 |---|---|---|---|
 | `chat` | str | — | Destino |
 | `texto` | str | — | Mensagem |
-| `confirmar` | bool | `False` | `False` devolve prévia e **não envia** |
+| `confirmar` | bool | `False` | `False` devolve prévia e **não envia**; `True` pede aprovação ao usuário via elicitation |
 | `responder_id` | str | `""` | `messageid` a que a mensagem responde |
+
+Envia só se o usuário aprovar no cliente, ou se o chat estiver em
+`UAZAPI_MCP_SEND_ALLOWED_CHATS`. Cliente sem elicitation recebe erro e nada é enviado.
 
 ## send_media
 
@@ -108,9 +111,10 @@ Exige o celular online. `HTTP 400` significa chat sem mensagem âncora conhecida
 | `arquivo` | str | — | Caminho local ou URL |
 | `tipo` | str | `"document"` | `image`, `video`, `document`, `audio`, `ptt`, `sticker` |
 | `legenda` | str | `""` | Caption |
-| `confirmar` | bool | `False` | `False` devolve prévia e **não envia** |
+| `confirmar` | bool | `False` | `False` devolve prévia e **não envia**; `True` pede aprovação, como em `send_text` |
 
-Arquivos locais são enviados em base64; URLs são repassadas à uazapi.
+Arquivos locais são enviados em base64 e só de dentro de `UAZAPI_MCP_SEND_DIRS` (padrão: a
+pasta de mídias); fora dela, ou inexistente, dá o mesmo erro. URLs são repassadas à uazapi.
 
 ## mark_read
 

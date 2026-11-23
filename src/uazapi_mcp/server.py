@@ -1,7 +1,7 @@
 """MCP server: WhatsApp via uazapi.
 
-Leitura (chats, mensagens, mídias com áudio já transcrito) e envio com confirmação
-em duas etapas. Multi-instância: cada chamada escolhe a instância, ou usa
+Leitura (chats, mensagens, mídias com áudio já transcrito) e envio com prévia e
+aprovação do usuário via elicitation. Multi-instância: cada chamada escolhe a instância, ou usa
 UAZAPI_DEFAULT_INSTANCE quando definida.
 """
 from __future__ import annotations
@@ -11,7 +11,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from typing import Annotated
+
+from mcp.server.elicitation import AcceptedElicitation, ElicitationResult
+from mcp.server.mcpserver import Context, Elicit, MCPServer, Resolve
+from pydantic import BaseModel, Field
 
 from . import __version__, config, formato, uazapi
 from .midia import TIPOS_AUDIO, TIPOS_MIDIA, pasta_do_chat, processar_lote, transcrever
@@ -22,14 +26,104 @@ mcp = MCPServer(
     version=__version__,
     instructions=(
         "Lê e envia mensagens de WhatsApp via uazapi. Áudios voltam transcritos e mídias "
-        "viram arquivos locais. Envio exige duas etapas: chame com confirmar=False, mostre a "
-        "prévia ao usuário e só repita com confirmar=True após o aval dele."
+        "viram arquivos locais. Envio: chame com confirmar=False para ver a prévia; com "
+        "confirmar=True o servidor pede a aprovação do usuário no cliente antes de enviar."
     ),
 )
 
 
 def _erro(e: Exception) -> str:
     return f"ERRO: {e}"
+
+
+class _Aprovacao(BaseModel):
+    enviar: bool = Field(description="Marque para enviar exatamente esta mensagem")
+
+
+# A aprovação de envio vem do usuário via elicitation, nunca de um argumento do modelo:
+# uma mensagem recebida pode trazer instruções (prompt injection) que o modelo seguiria,
+# inclusive passando confirmar=True. O SDK roda o resolver antes do corpo da tool.
+_SEM_PERGUNTA = _Aprovacao(enviar=False)
+_SEM_ELICITATION = _Aprovacao(enviar=False)
+
+
+def _cliente_pergunta(ctx: Context) -> bool:
+    """Mesmo critério do SDK: elicitation declarada e com modo form."""
+    caps = ctx.client_capabilities
+    e = caps.elicitation if caps else None
+    return e is not None and (e.form is not None or e.url is None)
+
+
+def _motivo_recusa(aprovacao: ElicitationResult[_Aprovacao]) -> str | None:
+    """None libera o envio; senão, o motivo para devolver ao modelo."""
+    if not isinstance(aprovacao, AcceptedElicitation):
+        return "o usuário não aprovou o envio."
+    if aprovacao.data is _SEM_ELICITATION:
+        return ("este cliente MCP não pede aprovação ao usuário (elicitation). Use um "
+                "cliente que peça, ou libere o chat em UAZAPI_MCP_SEND_ALLOWED_CHATS.")
+    return None if aprovacao.data.enviar else "o usuário não aprovou o envio."
+
+
+def _destino(nome_inst: str, c: dict) -> str:
+    tipo = "GRUPO" if c.get("wa_isGroup") else "individual"
+    return (f"- Instância: {nome_inst}\n- Destino: {uazapi.nome_do_chat(c)} ({tipo}) · "
+            f"`{c['wa_chatid']}`")
+
+
+def _previa_texto(nome_inst: str, c: dict, texto: str) -> str:
+    return f"{_destino(nome_inst, c)}\n- Mensagem:\n\n{texto}"
+
+
+def _previa_midia(nome_inst: str, c: dict, arquivo: str, tipo: str, legenda: str) -> str:
+    origem = arquivo.strip()
+    local = None if origem.lower().startswith(("http://", "https://")) else _arquivo_liberado(origem)
+    tam = f"{local.stat().st_size/1024:.0f} KB" if local else "URL remota"
+    return (f"{_destino(nome_inst, c)}\n- Arquivo: {local or origem} ({tam}) como {tipo}\n"
+            f"- Legenda: {legenda or '(sem legenda)'}")
+
+
+def _pedir(ctx: Context, c: dict, previa: str) -> _Aprovacao | Elicit[_Aprovacao]:
+    if c["wa_chatid"] in config.SEND_ALLOWED_CHATS:
+        return _Aprovacao(enviar=True)
+    if not _cliente_pergunta(ctx):
+        return _SEM_ELICITATION
+    return Elicit(f"Enviar no WhatsApp?\n\n{previa}", _Aprovacao)
+
+
+async def _aprovar_texto(ctx: Context, chat: str, texto: str, confirmar: bool, instance: str):
+    if not confirmar:
+        return _SEM_PERGUNTA
+    nome_inst, _, c = await _ctx(instance, chat)
+    return _pedir(ctx, c, _previa_texto(nome_inst, c, texto))
+
+
+async def _aprovar_midia(ctx: Context, chat: str, arquivo: str, tipo: str, legenda: str,
+                         confirmar: bool, instance: str):
+    if not confirmar:
+        return _SEM_PERGUNTA
+    nome_inst, _, c = await _ctx(instance, chat)
+    return _pedir(ctx, c, _previa_midia(nome_inst, c, arquivo, tipo, legenda))
+
+
+def _arquivo_liberado(origem: str) -> Path | None:
+    """Caminho real do arquivo se ele estiver dentro de config.SEND_DIRS; senão None.
+
+    resolve() desfaz symlinks e `..` antes da checagem. Arquivo inexistente e arquivo fora
+    das pastas dão o mesmo None, para o modelo não sondar o que existe no disco.
+    """
+    try:
+        real = Path(origem).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+    if not real.is_file():
+        return None
+    for pasta in config.SEND_DIRS:
+        try:
+            if real.is_relative_to(pasta.expanduser().resolve()):
+                return real
+        except OSError:
+            continue
+    return None
 
 
 async def _ctx(instancia: str | None, chat: str) -> tuple[str, str, dict]:
@@ -332,23 +426,22 @@ async def sync_history(chat: str, quantidade: int = 100, instance: str = "") -> 
 # --------------------------------------------------------------------- envio
 
 @mcp.tool()
-async def send_text(chat: str, texto: str, confirmar: bool = False, responder_id: str = "",
-                    instance: str = "") -> str:
-    """Envia uma mensagem de texto. Exige confirmação em duas etapas.
+async def send_text(chat: str, texto: str,
+                    aprovacao: Annotated[ElicitationResult[_Aprovacao], Resolve(_aprovar_texto)],
+                    confirmar: bool = False, responder_id: str = "", instance: str = "") -> str:
+    """Envia uma mensagem de texto.
 
-    Chame primeiro com confirmar=False: nada é enviado e volta um preview com o
-    destinatario resolvido. MOSTRE esse preview ao usuário e só chame de novo com
-    confirmar=True depois que ele aprovar.
+    confirmar=False devolve só a prévia com o destino resolvido; nada é enviado.
+    confirmar=True pede a aprovação do usuário no cliente e só envia se ele aprovar.
     """
     try:
         nome_inst, token, c = await _ctx(instance, chat)
         destino = uazapi.nome_do_chat(c)
         tipo = "GRUPO" if c.get("wa_isGroup") else "individual"
         if not confirmar:
-            return (f"PRÉVIA — nada foi enviado ainda.\n\n"
-                    f"- Instância: {nome_inst}\n- Destino: {destino} ({tipo}) · `{c['wa_chatid']}`\n"
-                    f"- Mensagem:\n\n{texto}\n\n"
-                    "Confirme com o usuário e repita a chamada com confirmar=True.")
+            return f"PRÉVIA — nada foi enviado ainda.\n\n{_previa_texto(nome_inst, c, texto)}"
+        if motivo := _motivo_recusa(aprovacao):
+            return f"NÃO ENVIADO: {motivo}"
         body: dict[str, Any] = {"number": c["wa_chatid"], "text": texto}
         if responder_id:
             body["replyid"] = responder_id
@@ -360,27 +453,32 @@ async def send_text(chat: str, texto: str, confirmar: bool = False, responder_id
 
 
 @mcp.tool()
-async def send_media(chat: str, arquivo: str, tipo: str = "document", legenda: str = "",
-                     confirmar: bool = False, instance: str = "") -> str:
-    """Envia um arquivo local ou URL. Exige confirmação em duas etapas, como send_text.
+async def send_media(chat: str, arquivo: str,
+                     aprovacao: Annotated[ElicitationResult[_Aprovacao], Resolve(_aprovar_midia)],
+                     tipo: str = "document", legenda: str = "", confirmar: bool = False,
+                     instance: str = "") -> str:
+    """Envia um arquivo local ou URL, com a mesma aprovação de send_text.
 
-    tipo: image, video, document, audio, ptt (áudio de voz) ou sticker.
+    Arquivo local só de dentro das pastas liberadas (UAZAPI_MCP_SEND_DIRS; padrão: a
+    pasta de mídias). tipo: image, video, document, audio, ptt (áudio de voz) ou sticker.
     """
     try:
         nome_inst, token, c = await _ctx(instance, chat)
         destino = uazapi.nome_do_chat(c)
         ehgrupo = "GRUPO" if c.get("wa_isGroup") else "individual"
         origem = arquivo.strip()
-        local = Path(origem).expanduser()
-        if not origem.lower().startswith(("http://", "https://")) and not local.is_file():
-            return f"ERRO: arquivo não encontrado: {local}"
+        local = None
+        if not origem.lower().startswith(("http://", "https://")):
+            local = _arquivo_liberado(origem)
+            if local is None:
+                pastas = ", ".join(map(str, config.SEND_DIRS))
+                return f"ERRO: só envio arquivos existentes dentro de: {pastas}"
         if not confirmar:
-            tam = f"{local.stat().st_size/1024:.0f} KB" if local.is_file() else "URL remota"
-            return (f"PRÉVIA — nada foi enviado ainda.\n\n"
-                    f"- Instância: {nome_inst}\n- Destino: {destino} ({ehgrupo}) · `{c['wa_chatid']}`\n"
-                    f"- Arquivo: {origem} ({tam}) como {tipo}\n- Legenda: {legenda or '(sem legenda)'}\n\n"
-                    "Confirme com o usuário e repita a chamada com confirmar=True.")
-        if local.is_file():
+            previa = _previa_midia(nome_inst, c, arquivo, tipo, legenda)
+            return f"PRÉVIA — nada foi enviado ainda.\n\n{previa}"
+        if motivo := _motivo_recusa(aprovacao):
+            return f"NÃO ENVIADO: {motivo}"
+        if local:
             dados = base64.b64encode(local.read_bytes()).decode()
             conteudo = f"data:application/octet-stream;base64,{dados}"
         else:
@@ -388,7 +486,7 @@ async def send_media(chat: str, arquivo: str, tipo: str = "document", legenda: s
         body: dict[str, Any] = {"number": c["wa_chatid"], "type": tipo, "file": conteudo}
         if legenda:
             body["text"] = legenda
-        if local.is_file() and tipo == "document":
+        if local and tipo == "document":
             body["docName"] = local.name
         r = await uazapi.post("/send/media", body, token)
         return f"Enviado para {destino} ({ehgrupo}) pela instância {nome_inst}. id={r.get('messageid') or r.get('id') or ''}"

@@ -17,7 +17,9 @@ advisory só vira público depois da correção.
   `UAZAPI_SERVER`.
 - Escrita fora da pasta de mídias (`UAZAPI_MCP_MEDIA_DIR`) a partir de nomes de chat,
   instância ou arquivo vindos da API.
-- Envio de mensagem sem a etapa de confirmação (`confirmar=True`).
+- Envio de mensagem sem aprovação do usuário via elicitation, fora dos chats liberados em
+  `UAZAPI_MCP_SEND_ALLOWED_CHATS`. Um argumento que o modelo controla não conta como aprovação.
+- Leitura de arquivo local fora de `UAZAPI_MCP_SEND_DIRS` por `send_media`.
 - Exposição de tokens em erros, logs ou na saída de `check_config`.
 
 ## O que está fora do escopo deste projeto

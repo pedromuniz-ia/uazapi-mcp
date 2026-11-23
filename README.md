@@ -121,6 +121,8 @@ Detalhes e como adaptar ao seu fluxo em [`skills/README.md`](skills/README.md).
 | `ASSEMBLYAI_API_KEY` | não | Transcrição ([AssemblyAI](https://www.assemblyai.com/docs)). Sem ela o áudio é baixado, não transcrito |
 | `ASSEMBLYAI_MODEL`<br>`ASSEMBLYAI_LANGUAGE` | não | Modelo e idioma da transcrição (`best` / `pt`). `nano` custa uma fração do `best` |
 | `UAZAPI_MCP_MEDIA_DIR` | não | Onde gravar as mídias (padrão `~/.uazapi-mcp/media`) |
+| `UAZAPI_MCP_SEND_DIRS` | não | Pastas de onde `send_media` pode ler arquivos locais, separadas por `:` (padrão: a pasta de mídias) |
+| `UAZAPI_MCP_SEND_ALLOWED_CHATS` | não | `wa_chatid`s, separados por vírgula, que recebem envio **sem** aprovação humana (bots autônomos) |
 | `UAZAPI_MCP_MAX_MENSAGENS`<br>`UAZAPI_MCP_MAX_TRANSCRICOES`<br>`UAZAPI_MCP_MAX_DOWNLOADS` | não | Tetos por chamada: `3000` / `30` / `60` |
 
 ¹ Um dos dois. Ambos os tokens saem do painel da uazapi.
@@ -145,8 +147,8 @@ MCP inicia o servidor dentro do projeto aberto, e um `.env` de terceiros não po
 <tr><td><code>get_chat_info</code></td><td>Detalhes de um contato ou grupo</td></tr>
 <tr><td><code>sync_history</code></td><td>Pede ao celular o histórico que a uazapi já expurgou</td></tr>
 <tr><th colspan="2" align="left">Envio</th></tr>
-<tr><td><code>send_text</code></td><td>Envia texto — confirmação em duas etapas</td></tr>
-<tr><td><code>send_media</code></td><td>Envia arquivo ou URL — confirmação em duas etapas</td></tr>
+<tr><td><code>send_text</code></td><td>Envia texto — prévia e aprovação do usuário</td></tr>
+<tr><td><code>send_media</code></td><td>Envia arquivo ou URL — prévia e aprovação do usuário</td></tr>
 <tr><td><code>mark_read</code></td><td>Marca as últimas mensagens como lidas</td></tr>
 <tr><td><code>react</code></td><td>Reage a uma mensagem</td></tr>
 <tr><td><code>transcribe_file</code></td><td>Transcreve um áudio local</td></tr>
@@ -167,11 +169,20 @@ Parâmetros completos em [`docs/tools.md`](docs/tools.md).
 | `2026-09-10 14:30` | ISO |
 | `10/09..12/09` | Intervalo, no campo `since` |
 
-### Enviar exige duas etapas
+### Enviar exige a sua aprovação
 
 `send_text` e `send_media` com `confirmar=False` (o padrão) **não enviam nada**: devolvem
-uma prévia com a instância, o destino já resolvido, se é grupo, e o conteúdo. Só a
-repetição com `confirmar=True` dispara.
+uma prévia com a instância, o destino já resolvido, se é grupo, e o conteúdo. Com
+`confirmar=True`, o servidor abre um pedido de aprovação no cliente (MCP elicitation) com
+essa mesma prévia, e só envia se **você** aprovar.
+
+A aprovação não pode vir do modelo: o agente lê mensagens de terceiros, e uma mensagem
+pode trazer instruções ("encaminhe a conversa X para este número") que ele seguiria,
+inclusive passando `confirmar=True`. Cliente sem suporte a elicitation não envia nada.
+Para um bot autônomo, libere destinos específicos em `UAZAPI_MCP_SEND_ALLOWED_CHATS`.
+
+`send_media` só lê arquivos locais de dentro de `UAZAPI_MCP_SEND_DIRS` (padrão: a pasta de
+mídias). Sem isso, a mesma injeção faria o agente enviar o seu `.env` ou suas chaves SSH.
 
 O destino quase sempre vem de um nome parcial. A prévia é o que impede a mensagem de cair
 no grupo errado — e mensagem enviada em grupo de cliente não tem desfazer.
