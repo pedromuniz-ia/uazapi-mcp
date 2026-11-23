@@ -5,6 +5,51 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
+### Adicionado
+
+- Tools de contato e etiquetas: `save_contact`, `list_labels`, `edit_label` e `label_chat`.
+- `UAZAPI_MCP_SEND_DIRS` e `UAZAPI_MCP_SEND_ALLOWED_CHATS` (ver Segurança).
+- `tests/test_transcricao.py`: sequência dos três passos, corpo do job, job com erro,
+  upload recusado, áudio sem fala, cache e não-cacheamento de erro. Sem rede.
+- `tests/test_midia.py`, `tests/test_etiquetas.py` e `tests/test_envio.py`, este com
+  aprovação ponta a ponta pelo `mcp.Client` do SDK e a uazapi simulada.
+
+### Mudado
+
+- **Transcrição migrada da ElevenLabs Scribe v2 para a AssemblyAI.** A chave passa a ser
+  `ASSEMBLYAI_API_KEY`; `ELEVENLABS_API_KEY` não é mais lida. Modelos em
+  `ASSEMBLYAI_SPEECH_MODELS` (lista em ordem de fallback, enviada em `speech_models`;
+  vazia = padrão da AssemblyAI) e idioma em `ASSEMBLYAI_LANGUAGE` (default `pt`).
+- A AssemblyAI é assíncrona: onde havia um POST agora são três passos — upload do
+  arquivo, criação do job e polling com backoff até 3s, teto de 300s por áudio. O
+  `upload_url` devolvido pela API é interno e não circula fora do processo.
+- `check_config` passa a mostrar `ASSEMBLYAI_API_KEY`, o par modelo/idioma, as pastas
+  liberadas para `send_media` e quantos chats dispensam aprovação.
+- **Envio exige aprovação do usuário no cliente** (ver Segurança). Bot que enviava sem
+  humano passa a receber `NÃO ENVIADO`, a menos que o cliente suporte elicitation ou o
+  chat esteja em `UAZAPI_MCP_SEND_ALLOWED_CHATS`.
+- POST não é mais repetido automaticamente em falha (antes, até 3 tentativas): envio não é
+  idempotente, e a repetição podia duplicar a mensagem.
+
+### Corrigido
+
+- Comentário inline no `.env` (`CHAVE=abc  # nota`) é lido como o python-dotenv lê; antes
+  o comentário entrava no valor do token.
+- Mídias de mensagens com o mesmo horário não se sobrescrevem mais. Áudios encaminhados
+  juntos chegam com o mesmo `messageTimestamp`, e o arquivo era nomeado só por ele: das
+  cópias, sobrava uma, e as outras mensagens apontavam para ela. O nome agora leva o id
+  da mensagem.
+- Download gravado em arquivo temporário e renomeado no fim, para a transcrição nunca
+  ler um arquivo pela metade (era a causa de `Too much data for declared Content-Length`).
+- O cache de transcrição passa a ser pelo conteúdo do áudio: o mesmo áudio encaminhado
+  duas vezes é transcrito uma vez só, inclusive quando as cópias chegam juntas.
+- O teto de 300s da transcrição cobre o polling inteiro; uma consulta lenta não estica
+  mais o prazo.
+- `label_chat` com `definir=" , "` mandava lista vazia e apagava todas as etiquetas do
+  chat. Limpar agora exige o `-` explícito.
+
 ### Segurança
 
 - **Envio só com aprovação do usuário.** `confirmar=True` era um argumento que o próprio
@@ -15,33 +60,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 - **`send_media` não lê mais qualquer arquivo do disco.** Só de dentro de
   `UAZAPI_MCP_SEND_DIRS` (padrão: a pasta de mídias), com `resolve()` contra `..` e symlinks.
   Antes, a mesma injeção podia enviar `.env`, chaves SSH ou credenciais do usuário.
+- Erro da AssemblyAI não leva mais a URL do upload do áudio até o agente.
 - `.gitignore` cobre `.env.*` (um por instância), exceto `.env.example`.
-
-### Mudado
-
-- **Transcrição migrada da ElevenLabs Scribe v2 para a AssemblyAI.** A chave passa a ser
-  `ASSEMBLYAI_API_KEY`; `ELEVENLABS_API_KEY` não é mais lida. Modelo e idioma ficam em
-  `ASSEMBLYAI_MODEL` (default `best`) e `ASSEMBLYAI_LANGUAGE` (default `pt`).
-- A AssemblyAI é assíncrona: onde havia um POST agora são três passos — upload do
-  arquivo, criação do job e polling com backoff até 3s, teto de 300s por áudio. O
-  `upload_url` devolvido pela API é interno e não circula fora do processo.
-- `check_config` passa a mostrar `ASSEMBLYAI_API_KEY` e o par modelo/idioma.
-
-### Adicionado
-
-- `tests/test_transcricao.py`: sequência dos três passos, corpo do job, job com erro,
-  upload recusado, áudio sem fala, cache e não-cacheamento de erro. Sem rede.
-
-### Corrigido
-
-- Mídias de mensagens com o mesmo horário não se sobrescrevem mais. Áudios encaminhados
-  juntos chegam com o mesmo `messageTimestamp`, e o arquivo era nomeado só por ele: das
-  cópias, sobrava uma, e as outras mensagens apontavam para ela. O nome agora leva o id
-  da mensagem.
-- Download gravado em arquivo temporário e renomeado no fim, para a transcrição nunca
-  ler um arquivo pela metade (era a causa de `Too much data for declared Content-Length`).
-- O cache de transcrição passa a ser pelo conteúdo do áudio: o mesmo áudio encaminhado
-  duas vezes é transcrito uma vez só, inclusive quando as cópias chegam juntas.
 
 ## [0.1.0] - 2026-09-16
 
@@ -67,5 +87,6 @@ Primeira versão.
 - O `fileURL` da uazapi (público, sem autenticação) nunca circula: a mídia vai para o disco
   e só o caminho aparece. O httpx não loga mais as URLs no stderr.
 
-[Unreleased]: https://github.com/illumi-ai/uazapi-mcp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/pedromuniz-ia/uazapi-mcp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/pedromuniz-ia/uazapi-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/illumi-ai/uazapi-mcp/releases/tag/v0.1.0
