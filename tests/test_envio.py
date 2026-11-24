@@ -127,6 +127,53 @@ def test_chat_liberado_envia_sem_perguntar(enviados, monkeypatch):
     assert "Enviado" in out and len(enviados) == 1
 
 
+@pytest.fixture
+def sem_pausa(monkeypatch):
+    monkeypatch.setattr(server, "PAUSA_ENTRE_MENSAGENS", 0)
+
+
+def test_lote_pede_uma_aprovacao_e_envia_em_ordem(enviados, sem_pausa):
+    perguntas = []
+    ok = types.ElicitResult(action="accept", content={"enviar": True})
+    out = _chamar("send_text", {"chat": "x", "texto": ["um", "dois", "tres"], "confirmar": True,
+                                "responder_id": "r1"},
+                  elicitation_callback=_responde(ok, perguntas))
+    assert "3 mensagens enviadas" in out
+    assert len(perguntas) == 1 and all(t in perguntas[0] for t in ("[1/3]", "dois", "[3/3]"))
+    assert [b["text"] for _, b in enviados] == ["um", "dois", "tres"]
+    assert [b.get("replyid") for _, b in enviados] == ["r1", None, None]
+
+
+def test_lote_recusado_nao_envia_nada(enviados, sem_pausa):
+    out = _chamar("send_text", {"chat": "x", "texto": ["um", "dois"], "confirmar": True},
+                  elicitation_callback=_responde(types.ElicitResult(action="decline"), []))
+    assert "NÃO ENVIADO" in out and enviados == []
+
+
+def test_lote_para_no_primeiro_erro(enviados, sem_pausa, monkeypatch):
+    async def post(path, body, _token):
+        if body["text"] == "dois":
+            raise RuntimeError("falhou")
+        enviados.append((path, body))
+        return {"messageid": "m"}
+    monkeypatch.setattr(uazapi, "post", post)
+    ok = types.ElicitResult(action="accept", content={"enviar": True})
+    out = _chamar("send_text", {"chat": "x", "texto": ["um", "dois", "tres"], "confirmar": True},
+                  elicitation_callback=_responde(ok, []))
+    assert "mensagem 2 de 3" in out and "Já enviadas: 1" in out
+    assert [b["text"] for _, b in enviados] == ["um"]
+
+
+@pytest.mark.parametrize("texto", [["", "  "], [str(i) for i in range(11)]])
+def test_lote_invalido_nem_pergunta(enviados, texto):
+    perguntas = []
+    out = _chamar("send_text", {"chat": "x", "texto": texto, "confirmar": True},
+                  elicitation_callback=_responde(types.ElicitResult(action="accept",
+                                                                    content={"enviar": True}),
+                                                 perguntas))
+    assert out.startswith("ERRO") and perguntas == [] and enviados == []
+
+
 def test_send_media_fora_da_pasta_nao_envia(enviados, pasta, tmp_path):
     (tmp_path / ".env").write_text("UAZAPI_TOKEN=abc")
     ok = types.ElicitResult(action="accept", content={"enviar": True})

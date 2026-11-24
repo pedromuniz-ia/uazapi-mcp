@@ -6,6 +6,7 @@ UAZAPI_DEFAULT_INSTANCE quando definida.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from pathlib import Path
@@ -27,7 +28,8 @@ mcp = MCPServer(
     instructions=(
         "Lê e envia mensagens de WhatsApp via uazapi. Áudios voltam transcritos e mídias "
         "viram arquivos locais. Envio: chame com confirmar=False para ver a prévia; com "
-        "confirmar=True o servidor pede a aprovação do usuário no cliente antes de enviar."
+        "confirmar=True o servidor pede a aprovação do usuário no cliente antes de enviar. "
+        "Várias mensagens seguidas para o mesmo chat vão numa chamada só, com texto em lista."
     ),
 )
 
@@ -37,7 +39,7 @@ def _erro(e: Exception) -> str:
 
 
 class _Aprovacao(BaseModel):
-    enviar: bool = Field(description="Marque para enviar exatamente esta mensagem")
+    enviar: bool = Field(description="Marque para enviar exatamente o que está acima")
 
 
 # A aprovação de envio vem do usuário via elicitation, nunca de um argumento do modelo:
@@ -70,8 +72,21 @@ def _destino(nome_inst: str, c: dict) -> str:
             f"`{c['wa_chatid']}`")
 
 
-def _previa_texto(nome_inst: str, c: dict, texto: str) -> str:
-    return f"{_destino(nome_inst, c)}\n- Mensagem:\n\n{texto}"
+MAX_MENSAGENS = 10
+PAUSA_ENTRE_MENSAGENS = 1.0  # segundos; mantém a ordem e o ritmo de quem digita
+
+
+def _mensagens(texto: str | list[str]) -> list[str]:
+    lista = [texto] if isinstance(texto, str) else list(texto)
+    return [m for m in lista if m.strip()]
+
+
+def _previa_texto(nome_inst: str, c: dict, textos: list[str]) -> str:
+    if len(textos) == 1:
+        return f"{_destino(nome_inst, c)}\n- Mensagem:\n\n{textos[0]}"
+    n = len(textos)
+    corpo = "\n\n".join(f"[{i}/{n}]\n{t}" for i, t in enumerate(textos, 1))
+    return f"{_destino(nome_inst, c)}\n- {n} mensagens, nesta ordem:\n\n{corpo}"
 
 
 def _previa_midia(nome_inst: str, c: dict, arquivo: str, tipo: str, legenda: str) -> str:
@@ -90,11 +105,13 @@ def _pedir(ctx: Context, c: dict, previa: str) -> _Aprovacao | Elicit[_Aprovacao
     return Elicit(f"Enviar no WhatsApp?\n\n{previa}", _Aprovacao)
 
 
-async def _aprovar_texto(ctx: Context, chat: str, texto: str, confirmar: bool, instance: str):
-    if not confirmar:
-        return _SEM_PERGUNTA
+async def _aprovar_texto(ctx: Context, chat: str, texto: str | list[str], confirmar: bool,
+                         instance: str):
+    textos = _mensagens(texto)
+    if not confirmar or not 0 < len(textos) <= MAX_MENSAGENS:
+        return _SEM_PERGUNTA  # lote inválido: o corpo da tool devolve o erro
     nome_inst, _, c = await _ctx(instance, chat)
-    return _pedir(ctx, c, _previa_texto(nome_inst, c, texto))
+    return _pedir(ctx, c, _previa_texto(nome_inst, c, textos))
 
 
 async def _aprovar_midia(ctx: Context, chat: str, arquivo: str, tipo: str, legenda: str,
@@ -426,30 +443,48 @@ async def sync_history(chat: str, quantidade: int = 100, instance: str = "") -> 
 # --------------------------------------------------------------------- envio
 
 @mcp.tool()
-async def send_text(chat: str, texto: str,
+async def send_text(chat: str, texto: str | list[str],
                     aprovacao: Annotated[ElicitationResult[_Aprovacao], Resolve(_aprovar_texto)],
                     confirmar: bool = False, responder_id: str = "", instance: str = "") -> str:
-    """Envia uma mensagem de texto.
+    """Envia texto. Para mensagens picadas, passe `texto` como lista (até 10): o usuário
+    aprova todas de uma vez e elas saem nesta ordem, para o mesmo chat.
 
     confirmar=False devolve só a prévia com o destino resolvido; nada é enviado.
     confirmar=True pede a aprovação do usuário no cliente e só envia se ele aprovar.
+    responder_id vale para a primeira mensagem.
     """
+    textos = _mensagens(texto)
+    if not textos:
+        return "ERRO: texto vazio."
+    if len(textos) > MAX_MENSAGENS:
+        return f"ERRO: no máximo {MAX_MENSAGENS} mensagens por chamada."
     try:
         nome_inst, token, c = await _ctx(instance, chat)
         destino = uazapi.nome_do_chat(c)
         tipo = "GRUPO" if c.get("wa_isGroup") else "individual"
         if not confirmar:
-            return f"PRÉVIA — nada foi enviado ainda.\n\n{_previa_texto(nome_inst, c, texto)}"
+            return f"PRÉVIA — nada foi enviado ainda.\n\n{_previa_texto(nome_inst, c, textos)}"
         if motivo := _motivo_recusa(aprovacao):
             return f"NÃO ENVIADO: {motivo}"
-        body: dict[str, Any] = {"number": c["wa_chatid"], "text": texto}
-        if responder_id:
-            body["replyid"] = responder_id
-        r = await uazapi.post("/send/text", body, token)
-        mid = r.get("messageid") or r.get("id") or ""
-        return f"Enviado para {destino} ({tipo}) pela instância {nome_inst}. id={mid}"
     except Exception as e:
         return _erro(e)
+    ids: list[str] = []
+    for i, t in enumerate(textos):
+        if i:
+            await asyncio.sleep(PAUSA_ENTRE_MENSAGENS)
+        body: dict[str, Any] = {"number": c["wa_chatid"], "text": t}
+        if responder_id and i == 0:
+            body["replyid"] = responder_id
+        try:
+            r = await uazapi.post("/send/text", body, token)
+        except Exception as e:
+            return (f"ERRO na mensagem {i + 1} de {len(textos)}: {e}. Já enviadas: {i}; "
+                    "as seguintes não foram enviadas.")
+        ids.append(r.get("messageid") or r.get("id") or "")
+    if len(ids) == 1:
+        return f"Enviado para {destino} ({tipo}) pela instância {nome_inst}. id={ids[0]}"
+    return (f"{len(ids)} mensagens enviadas para {destino} ({tipo}) pela instância "
+            f"{nome_inst}. ids={', '.join(ids)}")
 
 
 @mcp.tool()
