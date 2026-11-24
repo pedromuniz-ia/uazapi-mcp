@@ -96,12 +96,15 @@ Exige o celular online. `HTTP 400` significa chat sem mensagem âncora conhecida
 | Parâmetro | Tipo | Default | Descrição |
 |---|---|---|---|
 | `chat` | str | — | Destino |
-| `texto` | str | — | Mensagem |
+| `texto` | str ou list[str] | — | Mensagem, ou lista de até 10 enviadas em sequência com uma aprovação só |
 | `confirmar` | bool | `False` | `False` devolve prévia e **não envia**; `True` pede aprovação ao usuário via elicitation |
-| `responder_id` | str | `""` | `messageid` a que a mensagem responde |
+| `responder_id` | str | `""` | `messageid` a que a (primeira) mensagem responde |
 
 Envia só se o usuário aprovar no cliente, ou se o chat estiver em
 `UAZAPI_MCP_SEND_ALLOWED_CHATS`. Cliente sem elicitation recebe erro e nada é enviado.
+Uma lista vira um pedido de aprovação só, com todas as mensagens numeradas; aprovado, elas
+saem em ordem, com 1 s entre uma e outra. Se uma falhar, as seguintes não saem e a resposta
+diz quantas já foram.
 
 ## send_media
 

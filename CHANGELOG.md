@@ -5,6 +5,20 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
+### Adicionado
+
+- `send_text` aceita uma lista em `texto` (até 10): mensagens picadas para o mesmo chat
+  passam por **uma** aprovação só e saem em ordem, com 1 s entre elas. Se uma falhar, as
+  seguintes não saem e a resposta diz quantas já foram. `responder_id` vale para a primeira.
+
+### Mudado
+
+- Skill `whatsapp`: a aprovação do cliente é a única etapa. O agente junta as mensagens numa
+  chamada e não pede aval no chat antes; antes eram duas aprovações, mais uma por mensagem.
+- O campo da aprovação diz "exatamente o que está acima", porque pode cobrir várias mensagens.
+
 ## [0.2.0] - 2026-11-23
 
 ### Adicionado
@@ -87,6 +101,7 @@ Primeira versão.
 - O `fileURL` da uazapi (público, sem autenticação) nunca circula: a mídia vai para o disco
   e só o caminho aparece. O httpx não loga mais as URLs no stderr.
 
-[Unreleased]: https://github.com/pedromuniz-ia/uazapi-mcp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pedromuniz-ia/uazapi-mcp/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pedromuniz-ia/uazapi-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/pedromuniz-ia/uazapi-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/illumi-ai/uazapi-mcp/releases/tag/v0.1.0
